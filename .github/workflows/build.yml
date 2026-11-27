@@ -1,0 +1,89 @@
+name: Build Design Tokens to CSS
+
+on:
+  push:
+    branches: [ main ]
+    paths: [ 'tokens.json' ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Compile tokens.json to tokens.css
+        run: |
+          node -e '
+          const fs = require("fs");
+          const raw = JSON.parse(fs.readFileSync("tokens.json", "utf8"));
+          const primitives = raw["1. Primitives/Mode 1"] || {};
+
+          function resolve(val, setObj) {
+            if (typeof val !== "string") return val;
+            return val.replace(/\{([^}]+)\}/g, (_, path) => {
+              const parts = path.split(".");
+              let cur = setObj;
+              for (const p of parts) cur = cur && cur[p];
+              if (!cur || cur.$value === undefined) {
+                cur = primitives;
+                for (const p of parts) cur = cur && cur[p];
+              }
+              return cur && cur.$value !== undefined ? resolve(cur.$value, setObj) : val;
+            });
+          }
+
+          function flatten(obj, prefix = [], setObj = obj) {
+            let res = {};
+            for (const [k, v] of Object.entries(obj)) {
+              if (v && typeof v === "object" && "$value" in v) {
+                const name = [...prefix, k].join("-").toLowerCase().replace(/[^a-z0-9-]/g, "-");
+                if (v.$type === "typography" && typeof v.$value === "object") {
+                  for (const [tk, tv] of Object.entries(v.$value)) {
+                    res[`${name}-${tk.toLowerCase()}`] = resolve(tv, setObj);
+                  }
+                } else {
+                  let val = resolve(v.$value, setObj);
+                  if ((v.$type === "number" || v.$type === "fontSizes") && !isNaN(val)) val = val + "px";
+                  res[name] = val;
+                }
+              } else if (v && typeof v === "object") {
+                Object.assign(res, flatten(v, [...prefix, k], setObj));
+              }
+            }
+            return res;
+          }
+
+          const themes = [
+            { key: "2. Semantics Light/Mode 1", selector: ":root, [data-theme=\"light\"]" },
+            { key: "2. Semantics Dark", selector: "[data-theme=\"dark\"]" },
+            { key: "2. Semantics Campaign", selector: "[data-theme=\"campaign\"]" }
+          ];
+
+          let css = "/* Auto-generated from tokens.json */\n\n";
+          for (const t of themes) {
+            if (!raw[t.key]) continue;
+            const vars = flatten(raw[t.key], [], raw[t.key]);
+            css += `${t.selector} {\n`;
+            for (const [k, v] of Object.entries(vars)) css += `  --${k}: ${v};\n`;
+            css += "}\n\n";
+          }
+          fs.writeFileSync("tokens.css", css);
+          '
+
+      - name: Commit generated tokens.css
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@://github.com"
+          git add tokens.css
+          git diff --staged --quiet || git commit -m "chore: build tokens.css"
+          git push
