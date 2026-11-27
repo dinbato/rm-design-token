@@ -26,7 +26,9 @@ jobs:
           node -e '
           const fs = require("fs");
           const raw = JSON.parse(fs.readFileSync("tokens.json", "utf8"));
-          const primitives = raw["1. Primitives/Mode 1"] || {};
+          const keys = Object.keys(raw);
+          const findSet = (word) => raw[keys.find(k => k.toLowerCase().includes(word))] || {};
+          const primitives = findSet("primitives");
 
           function resolve(val, setObj) {
             if (typeof val !== "string") return val;
@@ -64,15 +66,15 @@ jobs:
           }
 
           const themes = [
-            { key: "2. Semantics Light/Mode 1", selector: ":root, [data-theme=\"light\"]" },
-            { key: "2. Semantics Dark", selector: "[data-theme=\"dark\"]" },
-            { key: "2. Semantics Campaign", selector: "[data-theme=\"campaign\"]" }
+            { word: "light", selector: ":root, [data-theme=\"light\"]" },
+            { word: "dark", selector: "[data-theme=\"dark\"]" },
+            { word: "campaign", selector: "[data-theme=\"campaign\"]" }
           ];
 
           let css = "/* Auto-generated from tokens.json */\n\n";
           for (const t of themes) {
-            if (!raw[t.key]) continue;
-            const vars = flatten(raw[t.key], [], raw[t.key]);
+            const setObj = findSet(t.word);
+            const vars = flatten(setObj, [], setObj);
             css += `${t.selector} {\n`;
             for (const [k, v] of Object.entries(vars)) css += `  --${k}: ${v};\n`;
             css += "}\n\n";
